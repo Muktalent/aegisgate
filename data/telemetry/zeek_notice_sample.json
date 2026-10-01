@@ -1,0 +1,12 @@
+{
+  "ts": "2026-09-27T22:07:20+00:00",
+  "_zeek_log_type": "notice",
+  "uid": "CZekNoticeExample001",
+  "id.orig_h": "10.10.10.25",
+  "id.resp_h": "198.51.100.23",
+  "src": "10.10.10.25",
+  "dst": "198.51.100.23",
+  "note": "Sensitive::Malware_C2",
+  "msg": "Detected possible command and control communication",
+  "sub": "Network Trojan Detection"
+}

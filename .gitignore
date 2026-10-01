@@ -1,0 +1,65 @@
+﻿# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local runtime data and generated reports
+reports/*.jsonl
+
+
+# Local databases and captured security data
+*.db
+*.sqlite
+*.sqlite3
+*.pcap
+*.pcapng
+
+# Certificates, private keys and local security material
+*.pem
+*.key
+*.crt
+secrets/
+
+# Frontend dependencies and production output
+frontend/node_modules/
+frontend/dist/
+
+
+# Local development backups
+*_backup.py
+# Local development backups
+*_backup.py
+
+
+# Unused Vite starter assets
+frontend/src/assets/react.svg
+frontend/src/assets/vite.svg
+frontend/src/assets/hero.png

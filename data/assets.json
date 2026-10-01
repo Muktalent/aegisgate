@@ -1,0 +1,34 @@
+[
+  {
+    "ip_address": "10.10.10.25",
+    "user_id": "analyst.one@aegis-demo.local",
+    "device_id": "lab-workstation-001",
+    "device_name": "LAB-WS-001",
+    "managed_device": true,
+    "device_compliant": true,
+    "location": "Lab-Segment-A",
+    "known_location": true,
+    "usual_hours": true,
+    "resource": "network_services",
+    "resource_sensitivity": "high",
+    "requested_action": "view_customer_records",
+    "failed_logins_24h": 0,
+    "endpoint_health": "healthy"
+  },
+  {
+    "ip_address": "10.10.10.50",
+    "user_id": "finance.user@aegis-demo.local",
+    "device_id": "lab-finance-001",
+    "device_name": "LAB-FINANCE-001",
+    "managed_device": true,
+    "device_compliant": true,
+    "location": "Lab-Segment-A",
+    "known_location": true,
+    "usual_hours": true,
+    "resource": "finance_data",
+    "resource_sensitivity": "critical",
+    "requested_action": "export_data",
+    "failed_logins_24h": 0,
+    "endpoint_health": "healthy"
+  }
+]

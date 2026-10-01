@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-09-27T22:07:00.000000+0000",
+  "event_type": "alert",
+  "src_ip": "10.10.10.50",
+  "src_port": 49821,
+  "dest_ip": "198.51.100.23",
+  "dest_port": 443,
+  "proto": "TCP",
+  "alert": {
+    "action": "allowed",
+    "gid": 1,
+    "signature_id": 2027758,
+    "rev": 5,
+    "signature": "ET TROJAN Possible C2 Communication",
+    "category": "A Network Trojan was Detected",
+    "severity": 1
+  }
+}

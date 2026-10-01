@@ -1,0 +1,141 @@
+[
+  {
+    "input_file": "data\\telemetry\\suricata_eve_sample.json",
+    "status": "processed",
+    "telemetry": {
+      "source": "suricata",
+      "event_type": "alert",
+      "timestamp": "2026-09-27T22:07:00Z",
+      "source_ip": "10.10.10.50",
+      "destination_ip": "198.51.100.23",
+      "destination_port": 443,
+      "protocol": "TCP",
+      "severity": 1,
+      "signature": "ET TROJAN Possible C2 Communication",
+      "category": "A Network Trojan was Detected",
+      "indicator": null,
+      "is_malicious": true
+    },
+    "connection_event": {
+      "event_id": "suricata-de6c0d5d-1f29-4fca-8b25-0bd8a4c39f3f",
+      "timestamp": "2026-09-27T22:07:00Z",
+      "user_id": "finance.user@aegis-demo.local",
+      "device_id": "lab-finance-001",
+      "device_name": "LAB-FINANCE-001",
+      "managed_device": true,
+      "device_compliant": true,
+      "mfa_success": true,
+      "location": "Lab-Segment-A",
+      "known_location": true,
+      "usual_hours": true,
+      "resource": "finance_data",
+      "resource_sensitivity": "critical",
+      "requested_action": "export_data",
+      "failed_logins_24h": 0,
+      "endpoint_health": "suspicious",
+      "infection_signal": true
+    },
+    "risk_assessment": {
+      "score": 100,
+      "reasons": [
+        "Requested resource has critical sensitivity.",
+        "Requested action 'export_data' has a high business impact.",
+        "Endpoint security health is suspicious.",
+        "A possible infection or malicious activity signal was received."
+      ]
+    },
+    "access_decision": {
+      "action": "deny",
+      "requires_mfa": false,
+      "requires_analyst_review": true,
+      "reasons": [
+        "Requested resource has critical sensitivity.",
+        "Requested action 'export_data' has a high business impact.",
+        "Endpoint security health is suspicious.",
+        "A possible infection or malicious activity signal was received."
+      ]
+    }
+  },
+  {
+    "input_file": "data\\telemetry\\suricata_unknown_asset_sample.json",
+    "status": "unresolved_asset",
+    "telemetry": {
+      "source": "suricata",
+      "event_type": "alert",
+      "timestamp": "2026-09-27T22:10:00Z",
+      "source_ip": "10.10.10.99",
+      "destination_ip": "198.51.100.99",
+      "destination_port": 443,
+      "protocol": "TCP",
+      "severity": 1,
+      "signature": "ET MALWARE Suspicious C2 Activity",
+      "category": "A Network Trojan was Detected",
+      "indicator": null,
+      "is_malicious": true
+    },
+    "error": "No asset inventory record found for 10.10.10.99.",
+    "access_decision": {
+      "action": "manual_review",
+      "requires_mfa": false,
+      "requires_analyst_review": true,
+      "reasons": [
+        "The source IP could not be correlated with a known asset."
+      ]
+    }
+  },
+  {
+    "input_file": "data\\telemetry\\zeek_dns_sample.json",
+    "status": "processed",
+    "telemetry": {
+      "source": "zeek",
+      "event_type": "dns",
+      "timestamp": "2026-09-27T22:07:10Z",
+      "source_ip": "10.10.10.25",
+      "destination_ip": "10.10.10.2",
+      "destination_port": 53,
+      "protocol": "udp",
+      "severity": 2,
+      "signature": "Zeek DNS observation",
+      "category": "A",
+      "indicator": "malware-c2.example.test",
+      "is_malicious": true
+    },
+    "connection_event": {
+      "event_id": "zeek-9cc1e61f-850c-431e-9cf6-d32d3ac7ffc7",
+      "timestamp": "2026-09-27T22:07:10Z",
+      "user_id": "analyst.one@aegis-demo.local",
+      "device_id": "lab-workstation-001",
+      "device_name": "LAB-WS-001",
+      "managed_device": true,
+      "device_compliant": true,
+      "mfa_success": true,
+      "location": "Lab-Segment-A",
+      "known_location": true,
+      "usual_hours": true,
+      "resource": "network_services",
+      "resource_sensitivity": "high",
+      "requested_action": "view_customer_records",
+      "failed_logins_24h": 0,
+      "endpoint_health": "suspicious",
+      "infection_signal": true
+    },
+    "risk_assessment": {
+      "score": 100,
+      "reasons": [
+        "Requested resource has high sensitivity.",
+        "Endpoint security health is suspicious.",
+        "A possible infection or malicious activity signal was received."
+      ]
+    },
+    "access_decision": {
+      "action": "deny",
+      "requires_mfa": false,
+      "requires_analyst_review": true,
+      "reasons": [
+        "Requested resource has high sensitivity.",
+        "Endpoint security health is suspicious.",
+        "A possible infection or malicious activity signal was received."
+      ]
+    }
+  }
+]

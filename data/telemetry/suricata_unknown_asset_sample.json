@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-09-27T22:10:00.000000+0000",
+  "event_type": "alert",
+  "src_ip": "10.10.10.99",
+  "src_port": 50123,
+  "dest_ip": "198.51.100.99",
+  "dest_port": 443,
+  "proto": "TCP",
+  "alert": {
+    "action": "allowed",
+    "gid": 1,
+    "signature_id": 9000001,
+    "rev": 1,
+    "signature": "ET MALWARE Suspicious C2 Activity",
+    "category": "A Network Trojan was Detected",
+    "severity": 1
+  }
+}
