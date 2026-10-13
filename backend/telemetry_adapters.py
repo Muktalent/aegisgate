@@ -82,6 +82,7 @@ def normalize_suricata_event(raw_event: dict[str, Any]) -> NetworkTelemetryEvent
         category=category,
         indicator=raw_event.get("dns", {}).get("rrname"),
         is_malicious=is_malicious_text(signature, category),
+        lab_metadata=raw_event.get("aegisgate_lab"),
         raw_event=raw_event,
     )
 
@@ -126,6 +127,7 @@ def normalize_zeek_event(
         category=category,
         indicator=query,
         is_malicious=is_malicious_text(signature, category, query),
+        lab_metadata=raw_event.get("aegisgate_lab"),
         raw_event=raw_event,
     )
 

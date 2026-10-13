@@ -42,35 +42,51 @@ function AlertsPage({
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [caseMessage, setCaseMessage] = useState<string | null>(
-    null,
-  );
+  const [caseMessage, setCaseMessage] = useState<string | null>(null);
   const [creatingForEventId, setCreatingForEventId] = useState<
     string | null
   >(null);
-
-  async function loadAlerts() {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const loadedAlerts = await getAlerts(accessToken);
-
-      setAlerts(loadedAlerts);
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load alerts.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
-    void loadAlerts();
-  }, [accessToken]);
+    let ignore = false;
+
+    async function fetchAlerts() {
+      try {
+        const loadedAlerts = await getAlerts(accessToken);
+
+        if (!ignore) {
+          setAlerts(loadedAlerts);
+          setError(null);
+        }
+      } catch (requestError) {
+        if (!ignore) {
+          setAlerts([]);
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load alerts.",
+          );
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void fetchAlerts();
+
+    return () => {
+      ignore = true;
+    };
+  }, [accessToken, refreshVersion]);
+
+  function handleRefresh() {
+    setIsLoading(true);
+    setError(null);
+    setRefreshVersion((version) => version + 1);
+  }
 
   const filteredAlerts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -102,7 +118,8 @@ function AlertsPage({
   ) {
     event.preventDefault();
 
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const title = String(form.get("title") ?? "").trim();
 
     if (!title) {
@@ -130,7 +147,7 @@ function AlertsPage({
           `${alert.event_id}.`,
       );
 
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (requestError) {
       setCaseMessage(
         requestError instanceof Error
@@ -156,10 +173,11 @@ function AlertsPage({
 
         <button
           className="secondary-button"
-          onClick={() => void loadAlerts()}
+          onClick={handleRefresh}
+          disabled={isLoading}
           type="button"
         >
-          Refresh alerts
+          {isLoading ? "Refreshing…" : "Refresh alerts"}
         </button>
       </div>
 
@@ -178,14 +196,16 @@ function AlertsPage({
       )}
 
       {error && (
-        <section className="error-panel">
+        <section className="error-panel" role="alert">
           <h2>Unable to load alerts</h2>
           <p>{error}</p>
         </section>
       )}
 
       {caseMessage && (
-        <p className="case-message">{caseMessage}</p>
+        <p className="case-message" role="status">
+          {caseMessage}
+        </p>
       )}
 
       {!isLoading && !error && (
@@ -210,7 +230,7 @@ function AlertsPage({
                 const severity = alert.telemetry.severity ?? undefined;
 
                 return (
-                   <tr key={alert.event_id}>
+                  <tr key={alert.event_id}>
                     <td>
                       <code>{alert.event_id}</code>
                     </td>
@@ -229,7 +249,6 @@ function AlertsPage({
                         {severityLabel(severity)}
                       </span>
                     </td>
-
                     <td>{alert.telemetry.source}</td>
                     <td>
                       <code>{alert.telemetry.source_ip}</code>
@@ -239,11 +258,9 @@ function AlertsPage({
                         "No signature available"}
                     </td>
                     <td>
-                      {alert.access_decision?.action ??
-                        "Not evaluated"}
+                      {alert.access_decision?.action ?? "Not evaluated"}
                     </td>
                     <td>{alert.status}</td>
-
                     <td>
                       <details className="case-details">
                         <summary>Open case</summary>
@@ -262,6 +279,8 @@ function AlertsPage({
                                 alert.telemetry.source_ip
                               }
                               name="title"
+                              required
+                              disabled={creatingForEventId !== null}
                             />
                           </label>
 
@@ -271,13 +290,12 @@ function AlertsPage({
                               name="analyst_note"
                               placeholder="Initial investigation note"
                               rows={3}
+                              disabled={creatingForEventId !== null}
                             />
                           </label>
 
                           <button
-                            disabled={
-                              creatingForEventId === alert.event_id
-                            }
+                            disabled={creatingForEventId !== null}
                             type="submit"
                           >
                             {creatingForEventId === alert.event_id

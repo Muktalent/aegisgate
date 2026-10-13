@@ -306,6 +306,7 @@ export interface NetworkBehaviorSummary {
   scope: string;
   source_record_count: number;
   analysis_version: string;
+  run_id_filter: string | null;
 }
 
 export interface NetworkBehaviorSummaryRequest {
@@ -314,6 +315,7 @@ export interface NetworkBehaviorSummaryRequest {
   windowMinutes: number;
   destinationThreshold: number;
   portThreshold: number;
+  runId?: string;
 }
 
 export async function getNetworkBehaviorSummary(
@@ -327,6 +329,12 @@ export async function getNetworkBehaviorSummary(
     destination_threshold: String(request.destinationThreshold),
     port_threshold: String(request.portThreshold),
   });
+
+  const runId = request.runId?.trim();
+
+  if (runId) {
+    params.set("run_id", runId);
+  }
 
   const response = await fetch(
     `/v1/behavior/network-summary?${params.toString()}`,

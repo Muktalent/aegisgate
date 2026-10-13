@@ -25,6 +25,7 @@ export default function NetworkBehaviorSummaryPanel({
   const [windowMinutes, setWindowMinutes] = useState("5");
   const [destinationThreshold, setDestinationThreshold] = useState("10");
   const [portThreshold, setPortThreshold] = useState("10");
+  const [runId, setRunId] = useState("");
 
   const [result, setResult] = useState<NetworkBehaviorSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +42,7 @@ export default function NetworkBehaviorSummaryPanel({
     setWindowMinutes("5");
     setDestinationThreshold("2");
     setPortThreshold("2");
+    setRunId("");
     clearFeedback();
   }
 
@@ -58,6 +60,7 @@ export default function NetworkBehaviorSummaryPanel({
         windowMinutes: Number(windowMinutes),
         destinationThreshold: Number(destinationThreshold),
         portThreshold: Number(portThreshold),
+        runId,
       });
 
       setResult(summary);
@@ -78,6 +81,7 @@ export default function NetworkBehaviorSummaryPanel({
         <summary>
           {label} ({eventIds.length} event IDs)
         </summary>
+
         {eventIds.length > 0 ? (
           <ul>
             {eventIds.map((eventId) => (
@@ -199,6 +203,25 @@ export default function NetworkBehaviorSummaryPanel({
               }}
             />
           </label>
+
+          <label htmlFor="summary-run-id">
+            Run ID — optional
+            <input
+              id="summary-run-id"
+              value={runId}
+              onChange={(event) => {
+                setRunId(event.target.value);
+                clearFeedback();
+              }}
+              maxLength={100}
+              pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
+              placeholder="summary-run-a"
+              title="Use 1–100 letters, digits, dots, underscores or hyphens; start with a letter or digit."
+            />
+            <small>
+              Leave empty to include all runs and unmarked events.
+            </small>
+          </label>
         </fieldset>
 
         <button
@@ -232,6 +255,18 @@ export default function NetworkBehaviorSummaryPanel({
                 <dt>Source IP</dt>
                 <dd>{result.source_ip}</dd>
               </div>
+
+              <div>
+                <dt>Run ID filter</dt>
+                <dd>
+                  {result.run_id_filter === null ? (
+                    "No filter — all runs and unmarked events"
+                  ) : (
+                    <code>{result.run_id_filter}</code>
+                  )}
+                </dd>
+              </div>
+
               <div>
                 <dt>Unique destinations / threshold</dt>
                 <dd>
@@ -240,6 +275,7 @@ export default function NetworkBehaviorSummaryPanel({
                   {result.destination_analysis.destination_threshold}
                 </dd>
               </div>
+
               <div>
                 <dt>Destination signal</dt>
                 <dd>
@@ -248,6 +284,7 @@ export default function NetworkBehaviorSummaryPanel({
                     : "Threshold not reached"}
                 </dd>
               </div>
+
               <div>
                 <dt>Unique ports / threshold</dt>
                 <dd>
@@ -256,6 +293,7 @@ export default function NetworkBehaviorSummaryPanel({
                   {result.port_analysis.port_threshold}
                 </dd>
               </div>
+
               <div>
                 <dt>Port signal</dt>
                 <dd>
@@ -264,10 +302,14 @@ export default function NetworkBehaviorSummaryPanel({
                     : "Threshold not reached"}
                 </dd>
               </div>
+
               <div>
                 <dt>Destination matching records</dt>
-                <dd>{result.destination_analysis.matching_record_count}</dd>
+                <dd>
+                  {result.destination_analysis.matching_record_count}
+                </dd>
               </div>
+
               <div>
                 <dt>Port matching records</dt>
                 <dd>{result.port_analysis.matching_record_count}</dd>

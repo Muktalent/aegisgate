@@ -1,7 +1,19 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool, StrictInt
+
+
+class LabMetadata(BaseModel):
+    synthetic: StrictBool
+    scenario: str = Field(min_length=1, max_length=100)
+    sequence: StrictInt = Field(ge=1)
+    run_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    )
 
 
 class NetworkTelemetryEvent(BaseModel):
@@ -9,7 +21,9 @@ class NetworkTelemetryEvent(BaseModel):
         description="Sensor type, for example suricata or zeek."
     )
     event_type: str = Field(
-        description="Normalized type: alert, dns, connection, notice, tls, or http."
+        description=(
+            "Normalized type: alert, dns, connection, notice, tls, or http."
+        )
     )
     timestamp: datetime
     source_ip: str = Field(min_length=3)
@@ -27,4 +41,13 @@ class NetworkTelemetryEvent(BaseModel):
     category: str | None = None
     indicator: str | None = None
     is_malicious: bool = False
+
+    lab_metadata: LabMetadata | None = Field(
+        default=None,
+        description=(
+            "Caller-declared laboratory metadata. "
+            "Not verified provenance and not an authorization signal."
+        ),
+    )
+
     raw_event: dict[str, Any]

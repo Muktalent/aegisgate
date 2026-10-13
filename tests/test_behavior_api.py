@@ -818,3 +818,124 @@ def test_summary_api_missing_required_parameters(isolated_api, missing):
     )
 
     assert response.status_code == 422, response.text
+
+def test_summary_api_audits_run_id_filter_and_evidence(isolated_api):
+    client, session_factory = isolated_api
+
+    event_ids_by_run = {
+        "summary-run-a": set(),
+        "summary-run-b": set(),
+    }
+
+    observations = [
+        ("summary-run-a", "198.51.100.1", 22),
+        ("summary-run-a", "198.51.100.2", 443),
+        ("summary-run-b", "198.51.100.3", 8080),
+    ]
+
+    for sequence, (run_id, destination, port) in enumerate(
+        observations,
+        start=1,
+    ):
+        created_response = client.post(
+            "/v1/telemetry/events",
+            headers=auth("ingestor"),
+            json={
+                "event_type": "flow",
+                "timestamp": "2026-10-12T20:02:00Z",
+                "src_ip": "10.10.10.99",
+                "dest_ip": destination,
+                "dest_port": port,
+                "proto": "TCP",
+                "aegisgate_lab": {
+                    "synthetic": True,
+                    "scenario": "summary_audit_run_filter_test",
+                    "sequence": sequence,
+                    "run_id": run_id,
+                },
+            },
+        )
+
+        assert created_response.status_code == 200, (
+            created_response.text
+        )
+
+        event_ids_by_run[run_id].add(
+            created_response.json()["event_id"]
+        )
+
+    response = client.get(
+        SUMMARY_PATH,
+        params={
+            **SUMMARY_PARAMS,
+            "source_ip": "10.10.10.99",
+            "window_end": "2026-10-12T20:05:00Z",
+            "window_minutes": 5,
+            "destination_threshold": 2,
+            "port_threshold": 2,
+            "run_id": "summary-run-a",
+        },
+        headers=auth(),
+    )
+
+    assert response.status_code == 200, response.text
+    summary = response.json()
+
+    expected_ids = event_ids_by_run["summary-run-a"]
+    excluded_ids = event_ids_by_run["summary-run-b"]
+
+    assert len(expected_ids) == 2
+    assert len(excluded_ids) == 1
+    assert summary["run_id_filter"] == "summary-run-a"
+    assert summary["source_record_count"] == 2
+    assert summary["pattern"] == "both_thresholds_reached"
+    assert set(summary["evidence_event_ids"]) == expected_ids
+    assert not excluded_ids & set(summary["evidence_event_ids"])
+
+    with session_factory() as session:
+        entries = session.scalars(
+            select(AuditLogRecord).where(
+                AuditLogRecord.action
+                == "network_behavior_summary_requested"
+            )
+        ).all()
+
+        assert len(entries) == 1
+        entry = entries[0]
+
+        assert entry.actor == "test-soc_analyst"
+        assert entry.target_type == "ip_address"
+        assert entry.target_id == "10.10.10.99"
+
+        details = entry.details_json
+
+        for key in (
+            "run_id_filter",
+            "source_record_count",
+            "pattern",
+            "triggered",
+            "window_start",
+            "window_end",
+            "window_minutes",
+            "scope",
+            "analysis_version",
+        ):
+            assert details[key] == summary[key]
+
+        assert details["destination_threshold"] == 2
+        assert details["port_threshold"] == 2
+        assert details["unique_destination_count"] == 2
+        assert details["unique_port_count"] == 2
+        assert details["destination_matching_record_count"] == 2
+        assert details["port_matching_record_count"] == 2
+
+        for key in (
+            "evidence_event_ids",
+            "shared_evidence_event_ids",
+            "destination_only_evidence_event_ids",
+            "port_only_evidence_event_ids",
+        ):
+            assert details[key] == summary[key]
+
+        assert set(details["evidence_event_ids"]) == expected_ids
+        assert not excluded_ids & set(details["evidence_event_ids"])

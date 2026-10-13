@@ -805,6 +805,12 @@ def network_behavior_summary(
     window_minutes: int = Query(default=5, ge=1, le=1440),
     destination_threshold: int = Query(default=10, ge=2, le=10000),
     port_threshold: int = Query(default=10, ge=2, le=65535),
+    run_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    ),
     db: Session = Depends(get_db),
     identity: dict = Depends(
         require_roles(
@@ -824,6 +830,23 @@ def network_behavior_summary(
             AlertRecord.source_ip == source_ip
         )
     ).all()
+
+    if run_id is not None:
+        filtered_records = []
+
+        for record in records:
+            telemetry = record.telemetry_json
+            if not isinstance(telemetry, dict):
+                continue
+
+            metadata = telemetry.get("lab_metadata")
+            if not isinstance(metadata, dict):
+                continue
+
+            if metadata.get("run_id") == run_id:
+                filtered_records.append(record)
+
+        records = filtered_records
 
     events = [
         {
@@ -845,6 +868,7 @@ def network_behavior_summary(
     result["scope"] = "persisted_local_telemetry_only"
     result["source_record_count"] = len(records)
     result["analysis_version"] = "network-summary-v1"
+    result["run_id_filter"] = run_id
 
     destinations = result["destination_analysis"]
     ports = result["port_analysis"]
@@ -892,6 +916,7 @@ def network_behavior_summary(
                 result["port_only_evidence_event_ids"]
             ),
             "source_record_count": result["source_record_count"],
+            "run_id_filter": result["run_id_filter"],
             "scope": result["scope"],
             "analysis_version": result["analysis_version"],
         },
