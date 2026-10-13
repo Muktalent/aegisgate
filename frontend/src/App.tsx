@@ -10,6 +10,7 @@ import {
 } from "./api";
 
 import AlertsPage from "./AlertsPage";
+import BehaviorAnalysisPage from "./BehaviorAnalysisPage";
 import "./App.css";
 
 const STORAGE_KEY = "aegisgate_access_token";
@@ -258,6 +259,11 @@ function App() {
               <CountList values={summary.cases_by_status} />
             </article>
           </section>
+
+                    <BehaviorAnalysisPage
+            key={token}
+            accessToken={token}
+          />
 
           <AlertsPage accessToken={token} />
         </>

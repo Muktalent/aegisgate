@@ -1,7 +1,10 @@
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -9,11 +12,48 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 
 sys.path.append(str(BACKEND_DIR))
 
-from app.main import app
+import app.main as api
 from security import create_access_token
 
 
-client = TestClient(app)
+@pytest.fixture(autouse=True)
+def isolated_database(tmp_path, monkeypatch):
+    database_path = tmp_path / "persistent_api_test.db"
+
+    test_engine = create_engine(
+        f"sqlite:///{database_path.as_posix()}",
+        connect_args={"check_same_thread": False},
+    )
+
+    session_factory = sessionmaker(
+        bind=test_engine,
+        autoflush=False,
+        autocommit=False,
+    )
+
+    def override_get_db():
+        with session_factory() as session:
+            yield session
+
+    previous_overrides = api.app.dependency_overrides.copy()
+
+    monkeypatch.setattr(api, "engine", test_engine)
+    api.app.dependency_overrides[api.get_db] = override_get_db
+
+    try:
+        with TestClient(api.app) as test_client:
+            monkeypatch.setattr(
+                sys.modules[__name__],
+                "client",
+                test_client,
+                raising=False,
+            )
+
+            yield
+    finally:
+        api.app.dependency_overrides.clear()
+        api.app.dependency_overrides.update(previous_overrides)
+        test_engine.dispose()
 
 
 def authorization_header(
@@ -318,10 +358,10 @@ def test_ingestor_cannot_create_or_update_cases() -> None:
         "detail": "Your role is not authorised for this operation."
     }
 
-    def test_soc_analyst_can_view_dashboard_summary() -> None:
-        simulate_event("suricata_c2")
-        simulate_event("zeek_dns_c2")
-        simulate_event("unknown_asset")
+def test_soc_analyst_can_view_dashboard_summary() -> None:
+    simulate_event("suricata_c2")
+    simulate_event("zeek_dns_c2")
+    simulate_event("unknown_asset")
 
     response = client.get(
         "/v1/dashboard/summary",
@@ -348,6 +388,8 @@ def test_ingestor_cannot_create_or_update_cases() -> None:
         "resolved",
         "false_positive",
     }
+
+
 
 
 def test_dashboard_summary_counts_open_cases() -> None:
@@ -393,3 +435,54 @@ def test_ingestor_cannot_view_dashboard_summary() -> None:
     assert response.json() == {
         "detail": "Your role is not authorised for this operation."
     }
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "suricata_c2",
+        "zeek_dns_c2",
+        "zeek_notice_c2",
+        "unknown_asset",
+    ],
+)
+def test_event_list_preserves_telemetry_display_fields(scenario) -> None:
+    created = simulate_event(scenario)
+
+    created_telemetry = created["telemetry"]
+
+    assert created["event_id"]
+    assert isinstance(created_telemetry["severity"], int)
+    assert not isinstance(created_telemetry["severity"], bool)
+    assert created_telemetry["timestamp"]
+
+    response = client.get(
+        "/v1/events",
+        headers=authorization_header(
+            "test-soc-analyst",
+            "soc_analyst",
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+
+    matching_events = [
+        event
+        for event in response.json()
+        if event["event_id"] == created["event_id"]
+    ]
+
+    assert len(matching_events) == 1
+
+    listed = matching_events[0]
+    listed_telemetry = listed["telemetry"]
+
+    assert listed["event_id"] == created["event_id"]
+    assert listed["status"] == created["status"]
+    assert listed_telemetry["severity"] == created_telemetry["severity"]
+    assert listed_telemetry["timestamp"] == created_telemetry["timestamp"]
+    assert listed_telemetry["source"] == created_telemetry["source"]
+    assert listed_telemetry["source_ip"] == created_telemetry["source_ip"]
+
+    if scenario == "unknown_asset":
+        assert listed["risk_assessment"] is None
+        assert listed["status"] == "unresolved_asset"

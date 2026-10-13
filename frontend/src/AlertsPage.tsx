@@ -193,6 +193,8 @@ function AlertsPage({
           <table className="alerts-table">
             <thead>
               <tr>
+                <th>Event ID</th>
+                <th>Event timestamp</th>
                 <th>Severity</th>
                 <th>Source</th>
                 <th>Source IP</th>
@@ -205,10 +207,18 @@ function AlertsPage({
 
             <tbody>
               {filteredAlerts.map((alert) => {
-                const severity = alert.risk_assessment?.severity;
+                const severity = alert.telemetry.severity ?? undefined;
 
                 return (
-                  <tr key={alert.event_id}>
+                   <tr key={alert.event_id}>
+                    <td>
+                      <code>{alert.event_id}</code>
+                    </td>
+                    <td>
+                      <code>
+                        {alert.telemetry.timestamp ?? "Not available"}
+                      </code>
+                    </td>
                     <td>
                       <span
                         className={

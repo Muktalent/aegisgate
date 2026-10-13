@@ -472,3 +472,131 @@ h2 {
     flex-direction: column;
   }
 }
+
+.behavior-section {
+  margin-top: 28px;
+  padding: 22px;
+  border: 1px solid #2d476b;
+  border-radius: 12px;
+  background: #0d1a2d;
+}
+
+.behavior-form {
+  margin-top: 22px;
+}
+
+.behavior-form fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.behavior-form label {
+  display: grid;
+  gap: 8px;
+  color: #c9d8eb;
+  font-size: 0.9rem;
+}
+
+.behavior-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #38577f;
+  border-radius: 8px;
+  color: #e8eef9;
+  background: #07101d;
+  font: inherit;
+}
+
+.behavior-form input:focus-visible {
+  outline: 2px solid #75b2ff;
+  outline-offset: 2px;
+}
+
+.behavior-submit {
+  margin-top: 16px;
+  padding: 11px 16px;
+  color: #07101d;
+  background: #75b2ff;
+  font-weight: 800;
+}
+
+.behavior-section button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.behavior-section .error-panel {
+  margin-top: 20px;
+}
+
+.behavior-result {
+  margin-top: 22px;
+  padding: 20px;
+  border: 1px solid #38577f;
+  border-radius: 10px;
+  background: #091525;
+  overflow-wrap: anywhere;
+}
+
+.behavior-result--triggered {
+  border-color: #806923;
+}
+
+.behavior-result--triggered h3 {
+  color: #f1ca66;
+}
+
+.behavior-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.behavior-metrics dt {
+  color: #afc1d9;
+  font-size: 0.85rem;
+}
+
+.behavior-metrics dd {
+  margin: 6px 0 0;
+  font-weight: 700;
+}
+
+.behavior-evidence {
+  margin: 20px 0;
+}
+
+.behavior-evidence summary {
+  color: #9ec5ff;
+  cursor: pointer;
+}
+
+.behavior-evidence ul {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.behavior-result li {
+  margin-bottom: 8px;
+}
+
+.behavior-note {
+  margin-bottom: 0;
+  color: #afc1d9;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 620px) {
+  .behavior-form fieldset,
+  .behavior-metrics {
+    grid-template-columns: 1fr;
+  }
+}

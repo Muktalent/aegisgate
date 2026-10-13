@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from telemetry_models import NetworkTelemetryEvent
-
+import math
 
 MALICIOUS_KEYWORDS = (
     "malware",
@@ -17,16 +17,42 @@ MALICIOUS_KEYWORDS = (
 )
 
 
-def parse_timestamp(value: str | None) -> datetime:
-    if not value:
-        return datetime.now(UTC)
+def parse_timestamp(value: str | int | float | None) -> datetime:
+    if value is None:
+        raise ValueError("Telemetry timestamp is required.")
 
-    normalized = value.replace("Z", "+00:00")
+    if isinstance(value, bool):
+        raise ValueError("Telemetry timestamp cannot be a boolean.")
+
+    if isinstance(value, (int, float)):
+        try:
+            if not math.isfinite(value):
+                raise ValueError("Non-finite timestamp.")
+
+            return datetime.fromtimestamp(value, tz=UTC)
+        except (ValueError, OverflowError, OSError) as error:
+            raise ValueError(
+                "Invalid Unix timestamp."
+            ) from error
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Invalid telemetry timestamp.")
+
+    normalized = value.strip().replace("Z", "+00:00")
 
     try:
-        return datetime.fromisoformat(normalized)
-    except ValueError:
-        return datetime.now(UTC)
+        timestamp = datetime.fromisoformat(normalized)
+    except ValueError as error:
+        raise ValueError(
+            "Invalid ISO 8601 timestamp."
+        ) from error
+
+    if timestamp.tzinfo is None:
+        raise ValueError(
+            "Telemetry timestamp must include a timezone."
+        )
+
+    return timestamp.astimezone(UTC)
 
 
 def is_malicious_text(*values: str | None) -> bool:
