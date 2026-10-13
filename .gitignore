@@ -55,8 +55,10 @@ frontend/dist/
 
 # Local development backups
 *_backup.py
-# Local development backups
-*_backup.py
+!/scripts/verify_database_backup.py
+
+# Local database backups and restore verification reports
+/backups/
 
 
 # Unused Vite starter assets
