@@ -1,14 +1,18 @@
+import hmac
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
 
+from app.database import get_db
 from config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     ADMIN_PASSWORD,
     ADMIN_USERNAME,
+    ENVIRONMENT,
     INGESTOR_PASSWORD,
     INGESTOR_USERNAME,
     JWT_ALGORITHM,
@@ -19,6 +23,11 @@ from config import (
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+SESSION_COOKIE = "aegis_session"
+CSRF_HEADER = "X-CSRF-Token"
+COOKIE_SECURE = ENVIRONMENT == "production"
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 LAB_USERS = {
@@ -61,45 +70,102 @@ def create_access_token(username: str, role: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
+def create_session_token(
+    username: str,
+    role: str,
+    session_id: str,
+    csrf_token: str,
+    expires_at: datetime,
+) -> str:
+    """Token for a browser session. ``sid`` ties it to a server-side session
+    record, so signing out or changing the user invalidates it."""
+    payload = {
+        "sub": username,
+        "role": role,
+        "iat": datetime.now(UTC),
+        "exp": expires_at,
+        "sid": session_id,
+        "csrf": csrf_token,
+    }
+
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def _unauthorised(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def get_current_identity(
+    request: Request,
     credentials: Annotated[
         HTTPAuthorizationCredentials | None,
         Depends(bearer_scheme),
     ],
+    db: Annotated[Session, Depends(get_db)],
 ) -> dict:
-    if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Bearer authentication is required.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    """Accept a bearer token (services, tests) or the HttpOnly session cookie
+    (browser). Cookie requests that change state must also send the CSRF
+    token issued at sign-in."""
+    from_cookie = False
+
+    if credentials is not None:
+        token = credentials.credentials
+    else:
+        token = request.cookies.get(SESSION_COOKIE)
+        from_cookie = token is not None
+
+    if not token:
+        raise _unauthorised("Bearer authentication is required.")
 
     try:
         payload = jwt.decode(
-            credentials.credentials,
+            token,
             JWT_SECRET,
             algorithms=[JWT_ALGORITHM],
         )
     except jwt.PyJWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired access token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
+        raise _unauthorised("Invalid or expired access token.") from exc
 
     username = payload.get("sub")
     role = payload.get("role")
 
     if not isinstance(username, str) or not isinstance(role, str):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Access token has an invalid identity payload.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _unauthorised("Access token has an invalid identity payload.")
+
+    session_id = payload.get("sid")
+
+    if session_id is not None:
+        from app.auth_models import SessionRecord
+
+        record = db.get(SessionRecord, session_id) if isinstance(session_id, str) else None
+
+        if record is None or record.revoked_at is not None or record.username != username:
+            raise _unauthorised("Invalid or expired access token.")
+
+    csrf_token = payload.get("csrf")
+
+    if from_cookie and request.method not in SAFE_METHODS:
+        supplied = request.headers.get(CSRF_HEADER, "")
+
+        if (
+            not isinstance(csrf_token, str)
+            or not csrf_token
+            or not hmac.compare_digest(supplied.encode("utf-8"), csrf_token.encode("utf-8"))
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="CSRF token missing or invalid.",
+            )
 
     return {
         "username": username,
         "role": role,
+        "session_id": session_id if isinstance(session_id, str) else None,
+        "csrf_token": csrf_token if isinstance(csrf_token, str) else None,
     }
 
 

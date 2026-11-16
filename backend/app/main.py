@@ -4,10 +4,9 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,7 +18,6 @@ from app.db_models import (
     IncidentCaseRecord,
 )
 from app.schemas import (
-    DashboardSummaryResponse,
     CreateCaseRequest,
     HealthResponse,
     IncidentCaseResponse,
@@ -37,12 +35,7 @@ TELEMETRY_DIR = DATA_DIR / "telemetry"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.append(str(BACKEND_DIR))
 
-from telemetry_pipeline import process_network_event
-from behavior_analysis import (
-    analyze_destination_diversity,
-    analyze_network_behavior,
-    analyze_port_diversity,
-)
+from app.ingestion import normalise_event  # noqa: E402
 
 
 @asynccontextmanager
@@ -75,6 +68,35 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
+
+# Analysis core (detections, findings, risk, policy) under /api/v1.
+from app.api_analysis import router as analysis_router  # noqa: E402
+
+app.include_router(analysis_router)
+
+# Sign-in, sessions and user administration under /api/v1.
+from app.api_auth import router as auth_router  # noqa: E402
+
+app.include_router(auth_router)
+
+# Dashboard overview and asset inventory under /api/v1.
+from app.api_overview import router as overview_router  # noqa: E402
+
+app.include_router(overview_router)
+
+# Simulated responses, audit trail and Demo Lab under /api/v1.
+from app.api_platform import router as platform_router  # noqa: E402
+
+app.include_router(platform_router)
+
+# Telemetry file import, evaluation and CSV reports under /api/v1.
+from app.api_ingest import router as ingest_router  # noqa: E402
+from app.api_reports import router as reports_router  # noqa: E402
+from app.api_allowlist import router as allowlist_router  # noqa: E402
+
+app.include_router(ingest_router)
+app.include_router(reports_router)
+app.include_router(allowlist_router)
 
 SCENARIOS = {
     "suricata_c2": "suricata_eve_sample.json",
@@ -111,9 +133,13 @@ def write_audit_log(
 def process_and_store(
     raw_event: dict,
     db: Session,
+    commit: bool = True,
 ) -> dict:
+    """Normalise, correlate with the inventory and store one raw event. No
+    risk decision is made here (see ``app.ingestion``). With ``commit=False``
+    the caller commits, so a whole file is stored in one transaction."""
     try:
-        result = process_network_event(raw_event)
+        result = normalise_event(raw_event)
     except ValueError as error:
         raise HTTPException(
             status_code=422,
@@ -182,8 +208,11 @@ def process_and_store(
         },
     )
 
-    db.commit()
-    db.refresh(alert)
+    if commit:
+        db.commit()
+        db.refresh(alert)
+    else:
+        db.flush()
 
     return {
         "event_id": alert.event_id,
@@ -582,347 +611,3 @@ def update_case(
         created_by=case.created_by,
         updated_by=case.updated_by,
     )
-
-@app.get(
-    "/v1/dashboard/summary",
-    response_model=DashboardSummaryResponse,
-)
-
-
-def dashboard_summary(
-    db: Session = Depends(get_db),
-    identity: dict = Depends(
-        require_roles(
-            "soc_analyst",
-            "security_admin",
-        )
-    ),
-
-
-) -> DashboardSummaryResponse:
-    alerts = db.scalars(
-        select(AlertRecord)
-    ).all()
-
-    cases = db.scalars(
-        select(IncidentCaseRecord)
-    ).all()
-
-    alerts_by_source: dict[str, int] = {}
-    cases_by_status = {
-        "open": 0,
-        "acknowledged": 0,
-        "resolved": 0,
-        "false_positive": 0,
-    }
-
-    for alert in alerts:
-        alerts_by_source[alert.source] = (
-            alerts_by_source.get(alert.source, 0) + 1
-        )
-
-    for case in cases:
-        cases_by_status[case.status] = (
-            cases_by_status.get(case.status, 0) + 1
-        )
-
-    return DashboardSummaryResponse(
-        total_alerts=len(alerts),
-        open_cases=cases_by_status["open"],
-        critical_alerts=sum(
-            1
-            for alert in alerts
-            if alert.severity <= 1
-        ),
-        denied_events=sum(
-            1
-            for alert in alerts
-            if alert.access_action == "deny"
-        ),
-        unresolved_assets=sum(
-            1
-            for alert in alerts
-            if alert.status == "unresolved_asset"
-        ),
-        alerts_by_source=alerts_by_source,
-        cases_by_status=cases_by_status,
-    )
-
-
-
-
-@app.get("/v1/behavior/destination-diversity")
-def destination_diversity(
-    source_ip: str,
-    window_end: datetime,
-    window_minutes: int = Query(default=5, ge=1, le=1440),
-    destination_threshold: int = Query(default=10, ge=2, le=10000),
-    db: Session = Depends(get_db),
-    identity: dict = Depends(
-        require_roles(
-            "soc_analyst",
-            "security_admin",
-        )
-    ),
-) -> dict:
-    if window_end.tzinfo is None:
-        raise HTTPException(
-            status_code=422,
-            detail="window_end must include a timezone.",
-        )
-
-    records = db.scalars(
-        select(AlertRecord).where(
-            AlertRecord.source_ip == source_ip
-        )
-    ).all()
-
-    events = [
-        {
-            "event_id": record.event_id,
-            "telemetry": record.telemetry_json,
-        }
-        for record in records
-    ]
-
-    result = analyze_destination_diversity(
-        events,
-        source_ip=source_ip,
-        window_end=window_end,
-        window_minutes=window_minutes,
-        destination_threshold=destination_threshold,
-    )
-
-    result["scope"] = "persisted_local_telemetry_only"
-    result["source_record_count"] = len(records)
-    result["analysis_version"] = "destination-diversity-v1"
-
-    write_audit_log(
-        db,
-        action="destination_diversity_analysis_requested",
-        target_type="ip_address",
-        target_id=source_ip,
-        details={
-            "window_start": result["window_start"],
-            "window_end": result["window_end"],
-            "destination_threshold": destination_threshold,
-            "unique_destination_count": (
-                result["unique_destination_count"]
-            ),
-            "triggered": result["triggered"],
-            "evidence_event_ids": result["evidence_event_ids"],
-        },
-        actor=identity["username"],
-    )
-
-    db.commit()
-
-    return result
-
-@app.get("/v1/behavior/port-diversity")
-def port_diversity(
-    source_ip: str,
-    window_end: datetime,
-    window_minutes: int = Query(default=5, ge=1, le=1440),
-    port_threshold: int = Query(default=10, ge=2, le=65535),
-    destination_ip: str | None = Query(default=None, min_length=1),
-    db: Session = Depends(get_db),
-    identity: dict = Depends(
-        require_roles(
-            "soc_analyst",
-            "security_admin",
-        )
-    ),
-) -> dict:
-    if window_end.tzinfo is None:
-        raise HTTPException(
-            status_code=422,
-            detail="window_end must include a timezone.",
-        )
-
-    records = db.scalars(
-        select(AlertRecord).where(
-            AlertRecord.source_ip == source_ip
-        )
-    ).all()
-
-    events = [
-        {
-            "event_id": record.event_id,
-            "telemetry": record.telemetry_json,
-        }
-        for record in records
-    ]
-
-    result = analyze_port_diversity(
-        events,
-        source_ip=source_ip,
-        window_end=window_end,
-        window_minutes=window_minutes,
-        port_threshold=port_threshold,
-        destination_ip=destination_ip,
-    )
-
-    result["scope"] = "persisted_local_telemetry_only"
-    result["source_record_count"] = len(records)
-    result["analysis_version"] = "port-diversity-v1"
-
-    write_audit_log(
-        db,
-        action="port_diversity_analysis_requested",
-        target_type="ip_address",
-        target_id=source_ip,
-        details={
-            "window_start": result["window_start"],
-            "window_end": result["window_end"],
-            "window_minutes": window_minutes,
-            "destination_filter": result["destination_filter"],
-            "port_threshold": port_threshold,
-            "unique_port_count": result["unique_port_count"],
-            "observed_ports": result["observed_ports"],
-            "ports_by_destination": result["ports_by_destination"],
-            "matching_record_count": result["matching_record_count"],
-            "skipped_invalid_timestamps": (
-                result["skipped_invalid_timestamps"]
-            ),
-            "skipped_invalid_ports": result["skipped_invalid_ports"],
-            "triggered": result["triggered"],
-            "evidence_event_ids": result["evidence_event_ids"],
-            "scope": result["scope"],
-            "analysis_version": result["analysis_version"],
-        },
-        actor=identity["username"],
-    )
-
-    db.commit()
-
-    return result
-
-@app.get("/v1/behavior/network-summary")
-def network_behavior_summary(
-    source_ip: str,
-    window_end: datetime,
-    window_minutes: int = Query(default=5, ge=1, le=1440),
-    destination_threshold: int = Query(default=10, ge=2, le=10000),
-    port_threshold: int = Query(default=10, ge=2, le=65535),
-    run_id: str | None = Query(
-        default=None,
-        min_length=1,
-        max_length=100,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
-    ),
-    db: Session = Depends(get_db),
-    identity: dict = Depends(
-        require_roles(
-            "soc_analyst",
-            "security_admin",
-        )
-    ),
-) -> dict:
-    if window_end.tzinfo is None:
-        raise HTTPException(
-            status_code=422,
-            detail="window_end must include a timezone.",
-        )
-
-    records = db.scalars(
-        select(AlertRecord).where(
-            AlertRecord.source_ip == source_ip
-        )
-    ).all()
-
-    if run_id is not None:
-        filtered_records = []
-
-        for record in records:
-            telemetry = record.telemetry_json
-            if not isinstance(telemetry, dict):
-                continue
-
-            metadata = telemetry.get("lab_metadata")
-            if not isinstance(metadata, dict):
-                continue
-
-            if metadata.get("run_id") == run_id:
-                filtered_records.append(record)
-
-        records = filtered_records
-
-    events = [
-        {
-            "event_id": record.event_id,
-            "telemetry": record.telemetry_json,
-        }
-        for record in records
-    ]
-
-    result = analyze_network_behavior(
-        events,
-        source_ip=source_ip,
-        window_end=window_end,
-        window_minutes=window_minutes,
-        destination_threshold=destination_threshold,
-        port_threshold=port_threshold,
-    )
-
-    result["scope"] = "persisted_local_telemetry_only"
-    result["source_record_count"] = len(records)
-    result["analysis_version"] = "network-summary-v1"
-    result["run_id_filter"] = run_id
-
-    destinations = result["destination_analysis"]
-    ports = result["port_analysis"]
-
-    write_audit_log(
-        db,
-        action="network_behavior_summary_requested",
-        target_type="ip_address",
-        target_id=source_ip,
-        details={
-            "window_start": result["window_start"],
-            "window_end": result["window_end"],
-            "window_minutes": window_minutes,
-            "destination_threshold": destination_threshold,
-            "port_threshold": port_threshold,
-            "pattern": result["pattern"],
-            "triggered": result["triggered"],
-            "unique_destination_count": (
-                destinations["unique_destination_count"]
-            ),
-            "unique_port_count": ports["unique_port_count"],
-            "destination_signal_triggered": destinations["triggered"],
-            "port_signal_triggered": ports["triggered"],
-            "destination_matching_record_count": (
-                destinations["matching_record_count"]
-            ),
-            "port_matching_record_count": (
-                ports["matching_record_count"]
-            ),
-            "destination_skipped_invalid_timestamps": (
-                destinations["skipped_invalid_timestamps"]
-            ),
-            "port_skipped_invalid_timestamps": (
-                ports["skipped_invalid_timestamps"]
-            ),
-            "skipped_invalid_ports": ports["skipped_invalid_ports"],
-            "evidence_event_ids": result["evidence_event_ids"],
-            "shared_evidence_event_ids": (
-                result["shared_evidence_event_ids"]
-            ),
-            "destination_only_evidence_event_ids": (
-                result["destination_only_evidence_event_ids"]
-            ),
-            "port_only_evidence_event_ids": (
-                result["port_only_evidence_event_ids"]
-            ),
-            "source_record_count": result["source_record_count"],
-            "run_id_filter": result["run_id_filter"],
-            "scope": result["scope"],
-            "analysis_version": result["analysis_version"],
-        },
-        actor=identity["username"],
-    )
-
-    db.commit()
-
-    return result

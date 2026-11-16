@@ -1,285 +1,216 @@
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+
+import { ApiError, api, canAct, dateTime, setUnauthorisedHandler, type Session } from "./client";
+import { AnalysisPanel } from "./ui/AnalysisPanel";
 import {
-  useEffect,
-  useState,
-  type FormEvent,
-} from "react";
+  AssetsPage, DetectionPage, EventsPage, InvestigationsPage, OverviewPage, type PageProps,
+} from "./ui/pages";
+import { AnalyticsPage, AuditPage, DemoLabPage, ResponsePage, SettingsPage } from "./ui/more";
+import { Icon, Logo } from "./ui/parts";
+import "./styles.css";
 
-import {
-  getDashboardSummary,
-  type DashboardSummary,
-} from "./api";
+type PageId = "overview" | "events" | "assets" | "detection" | "investigations" | "responses"
+  | "analytics" | "demo" | "audit" | "settings";
 
-import AlertsPage from "./AlertsPage";
-import BehaviorAnalysisPage from "./BehaviorAnalysisPage";
-import "./App.css";
+interface PageInfo { id: PageId; label: string; icon: string; title: string; subtitle: string; group?: string }
 
-const STORAGE_KEY = "aegisgate_access_token";
+const PAGES: PageInfo[] = [
+  { id: "overview", label: "Overview", icon: "home", title: "Security Overview",
+    subtitle: "Current findings, key figures and recent activity in the laboratory environment." },
+  { id: "events", label: "Live Events", icon: "pulse", title: "Live Events",
+    subtitle: "Normalised Suricata and Zeek telemetry stored by AegisGate, and file import." },
+  { id: "assets", label: "Assets", icon: "monitor", title: "Assets",
+    subtitle: "Inventory assets and sources seen in telemetry that have no inventory record." },
+  { id: "detection", label: "Threat Detection", icon: "shield", title: "Threat Detection",
+    subtitle: "Correlated findings with their risk score and policy decision." },
+  { id: "investigations", label: "Investigations", icon: "folder", title: "Investigations",
+    subtitle: "Cases opened by analysts, with status and notes." },
+  { id: "responses", label: "Response Center", icon: "bolt", title: "Response Center",
+    subtitle: "Simulated response actions: approval, application in simulation and rollback." },
+  { id: "analytics", label: "Security Analytics", icon: "chart", title: "Security Analytics",
+    subtitle: "How current findings and detections are distributed." },
+  { id: "demo", label: "Demo Lab", icon: "flask", group: "Laboratory", title: "Demo Lab",
+    subtitle: "Reproducible synthetic scenarios and the comparative detection evaluation." },
+  { id: "audit", label: "Audit & Reports", icon: "doc", group: "Management", title: "Audit & Reports",
+    subtitle: "Tamper-evident audit trail and CSV reports." },
+  { id: "settings", label: "Settings", icon: "gear", group: "Management", title: "Settings",
+    subtitle: "Your account, appearance and user administration." },
+];
 
-interface MetricCardProps {
-  label: string;
-  value: number;
-  tone: "neutral" | "warning" | "critical" | "success";
+const ROLE_LABEL: Record<string, string> = {
+  security_admin: "Administrator", soc_analyst: "Analyst", viewer: "Viewer", ingestor: "Ingestor",
+};
+
+function useTheme(): [string, () => void] {
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem("aegis_theme") === "dark" ? "dark" : "light"; } catch { return "light"; }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("aegis_theme", theme); } catch { /* storage unavailable */ }
+  }, [theme]);
+  return [theme, () => setTheme((t) => (t === "dark" ? "light" : "dark"))];
 }
 
-function MetricCard({
-  label,
-  value,
-  tone,
-}: MetricCardProps) {
-  return (
-    <article className={`metric-card metric-card--${tone}`}>
-      <p className="metric-card__label">{label}</p>
-      <p className="metric-card__value">{value}</p>
-    </article>
-  );
-}
+function Login({ onSignedIn }: { onSignedIn: (session: Session) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-function CountList({
-  values,
-}: {
-  values: Record<string, number>;
-}) {
-  const entries = Object.entries(values);
-
-  if (entries.length === 0) {
-    return <p className="empty-state">No data available.</p>;
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true); setError(null);
+    try {
+      onSignedIn(await api.login(String(form.get("username") ?? ""), String(form.get("password") ?? "")));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to sign in.");
+    } finally { setBusy(false); }
   }
 
   return (
-    <ul className="count-list">
-      {entries.map(([label, value]) => (
-        <li key={label}>
-          <span>{label.replaceAll("_", " ")}</span>
-          <strong>{value}</strong>
-        </li>
-      ))}
-    </ul>
+    <main className="login">
+      <form className="card" onSubmit={submit}>
+        <div className="brand"><Logo /><div><strong>AegisGate</strong><span>Security Operations Platform</span></div></div>
+        <div><h1>Sign in</h1><p className="muted">Academic edition — simulated environment.</p></div>
+        <label className="field">Username
+          <input className="input" name="username" autoComplete="username" required autoFocus disabled={busy} /></label>
+        <label className="field">Password
+          <input className="input" name="password" type="password" autoComplete="current-password" required disabled={busy} /></label>
+        {error && <div className="notice error" role="alert"><Icon name="info" /><div>{error}</div></div>}
+        <button className="btn primary block" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        <p className="muted small">Accounts are created by an administrator. The first administrator is created with <code>scripts/create_user.py</code>.</p>
+      </form>
+    </main>
   );
 }
 
-interface DashboardProps {
-  accessToken: string;
-  onSignOut: () => void;
+function Workspace({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const ingestor = session.role === "ingestor";
+  const [page, setPage] = useState<PageId>(ingestor ? "events" : "overview");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [theme, toggleTheme] = useTheme();
+
+  const refresh = useCallback(() => setVersion((n) => n + 1), []);
+  const current = PAGES.find((p) => p.id === page) ?? PAGES[0];
+
+  async function runAnalysis() {
+    setRunning(true); setNotice(null);
+    try {
+      const result = await api.runAnalysis();
+      setNotice({ tone: "ok", text: `Analysis finished ${dateTime(result.completed_at)}: ${result.events_analysed} events, ${result.detection_count} detection(s), ${result.finding_count} finding(s)${result.suppressed_count ? `, ${result.suppressed_count} detection(s) suppressed by the allowlist` : ""}.` });
+      setSelected(null);
+      refresh();
+    } catch (reason) {
+      setNotice({ tone: "error", text: reason instanceof Error ? reason.message : "The analysis could not be run." });
+    } finally { setRunning(false); }
+  }
+
+  const props: PageProps = { role: session.role, version, selected, onSelect: setSelected, onChanged: refresh };
+  const initials = session.username.slice(0, 2).toUpperCase();
+  let lastGroup: string | undefined;
+  const visible = ingestor ? PAGES.filter((p) => p.id === "events" || p.id === "settings") : PAGES;
+
+  return (
+    <div className="shell">
+      <header className="topbar">
+        <div className="brand"><Logo /><div><strong>AegisGate</strong><span>Security Operations Platform</span></div></div>
+        <span className="mode-chip"><Icon name="flask" size={16} />Academic Mode <small>(Simulated environment)</small></span>
+        <span className="spacer" />
+        <span className="health"><i className="dot good" />API connected</span>
+        <button className="btn ghost" type="button" onClick={toggleTheme}
+          aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+          <Icon name={theme === "dark" ? "sun" : "moon"} /></button>
+        <div className="user"><span className="avatar">{initials}</span>
+          <div><b>{session.username}</b><span>{ROLE_LABEL[session.role] ?? session.role}</span></div></div>
+        <button className="btn" type="button" onClick={onSignOut}>Sign out</button>
+      </header>
+
+      <div className="workspace">
+        <nav className="nav" aria-label="Main navigation">
+          {visible.map((item) => {
+            const heading = item.group && item.group !== lastGroup ? <h4>{item.group}</h4> : null;
+            if (item.group) lastGroup = item.group;
+            return (
+              <div key={item.id}>{heading}
+                <button type="button" aria-current={page === item.id ? "page" : undefined}
+                  onClick={() => { setPage(item.id); setNotice(null); }}><Icon name={item.icon} />{item.label}</button>
+              </div>
+            );
+          })}
+        </nav>
+
+        <main className="evidence">
+          <div className="page-head">
+            <div><h1>{current.title}</h1><p>{current.subtitle}</p></div>
+            <div className="actions">
+              <button className="btn" type="button" onClick={refresh}><Icon name="refresh" size={16} />Refresh</button>
+              {canAct(session.role) && (
+                <button className="btn primary" type="button" onClick={runAnalysis} disabled={running}>
+                  <Icon name="target" size={16} />{running ? "Analysing…" : "Run analysis"}</button>
+              )}
+            </div>
+          </div>
+          {notice && (
+            <div className={`notice ${notice.tone === "error" ? "error" : ""}`} role={notice.tone === "error" ? "alert" : "status"} style={{ marginBottom: 14 }}>
+              <Icon name={notice.tone === "error" ? "info" : "check"} /><div>{notice.text}</div></div>
+          )}
+          {page === "overview" && <OverviewPage {...props} />}
+          {page === "events" && <EventsPage {...props} />}
+          {page === "assets" && <AssetsPage {...props} />}
+          {page === "detection" && <DetectionPage {...props} />}
+          {page === "investigations" && <InvestigationsPage {...props} />}
+          {page === "responses" && <ResponsePage {...props} />}
+          {page === "analytics" && <AnalyticsPage {...props} />}
+          {page === "demo" && <DemoLabPage {...props} />}
+          {page === "audit" && <AuditPage {...props} />}
+          {page === "settings" && <SettingsPage {...props} username={session.username} theme={theme} onToggleTheme={toggleTheme} />}
+        </main>
+
+        {!ingestor && <AnalysisPanel role={session.role} groupId={selected} version={version} onChanged={refresh} />}
+      </div>
+    </div>
+  );
 }
 
-function Dashboard({
-  accessToken,
-  onSignOut,
-}: DashboardProps) {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [refreshVersion, setRefreshVersion] = useState(0);
+export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
     let ignore = false;
-
-    async function fetchSummary() {
-      try {
-        const loadedSummary = await getDashboardSummary(accessToken);
-
-        if (!ignore) {
-          setSummary(loadedSummary);
-          setError(null);
+    api.me()
+      .then((value) => { if (!ignore) setSession(value); })
+      .catch((reason: unknown) => {
+        if (!ignore && !(reason instanceof ApiError && reason.status === 401)) {
+          setProblem(reason instanceof Error ? reason.message : "Unable to reach the API.");
         }
-      } catch (requestError) {
-        if (!ignore) {
-          setSummary(null);
-          setError(
-            requestError instanceof Error
-              ? requestError.message
-              : "Unable to load the dashboard.",
-          );
-        }
-      } finally {
-        if (!ignore) {
-          setIsLoading(false);
-        }
-      }
-    }
+      })
+      .finally(() => { if (!ignore) setChecking(false); });
+    return () => { ignore = true; };
+  }, []);
 
-    void fetchSummary();
+  useEffect(() => {
+    setUnauthorisedHandler(() => setSession(null));     // session expired or was revoked
+    return () => setUnauthorisedHandler(null);
+  }, []);
 
-    return () => {
-      ignore = true;
-    };
-  }, [accessToken, refreshVersion]);
-
-  function handleRefresh() {
-    setIsLoading(true);
-    setError(null);
-    setRefreshVersion((version) => version + 1);
+  async function signOut() {
+    try { await api.logout(); } catch { /* the session is dropped locally either way */ }
+    setSession(null);
   }
 
-  return (
-    <main className="dashboard-page">
-      <header className="dashboard-header">
-        <div>
-          <p className="eyebrow">AEGISGATE SOC</p>
-          <h1>Security posture overview</h1>
-          <p>
-            Aggregated metrics for alerts, access decisions, and
-            persistent cases.
-          </p>
-        </div>
-
-        <div className="header-actions">
-          <button
-            className="secondary-button"
-            onClick={handleRefresh}
-            disabled={isLoading}
-            type="button"
-          >
-            {isLoading ? "Refreshing…" : "Refresh"}
-          </button>
-
-          <button
-            className="secondary-button"
-            onClick={onSignOut}
-            type="button"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-
-      {isLoading && (
-        <p className="status-message">
-          Loading dashboard metrics…
-        </p>
-      )}
-
-      {error && (
-        <section className="error-panel" role="alert">
-          <h2>Unable to load the dashboard</h2>
-          <p>{error}</p>
-          <p>
-            Verify that FastAPI is running and that the token belongs
-            to a <code>soc_analyst</code> or{" "}
-            <code>security_admin</code> user.
-          </p>
-        </section>
-      )}
-
-      {summary && (
-        <>
-          <section
-            aria-label="Security metrics"
-            className="metrics-grid"
-          >
-            <MetricCard
-              label="Total alerts"
-              value={summary.total_alerts}
-              tone="neutral"
-            />
-            <MetricCard
-              label="Open cases"
-              value={summary.open_cases}
-              tone="warning"
-            />
-            <MetricCard
-              label="Critical alerts"
-              value={summary.critical_alerts}
-              tone="critical"
-            />
-            <MetricCard
-              label="Denied events"
-              value={summary.denied_events}
-              tone="success"
-            />
-            <MetricCard
-              label="Unresolved assets"
-              value={summary.unresolved_assets}
-              tone="warning"
-            />
-          </section>
-
-          <section className="breakdown-grid">
-            <article className="breakdown-card">
-              <h2>Alerts by source</h2>
-              <CountList values={summary.alerts_by_source} />
-            </article>
-
-            <article className="breakdown-card">
-              <h2>Cases by status</h2>
-              <CountList values={summary.cases_by_status} />
-            </article>
-          </section>
-
-          <BehaviorAnalysisPage accessToken={accessToken} />
-          <AlertsPage key={accessToken} accessToken={accessToken} />
-        </>
-      )}
-    </main>
-  );
-}
-
-function App() {
-  const [token, setToken] = useState(
-    () => localStorage.getItem(STORAGE_KEY) ?? "",
-  );
-  const [tokenInput, setTokenInput] = useState(token);
-
-  function handleTokenSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const nextToken = tokenInput.trim();
-
-    if (!nextToken) {
-      localStorage.removeItem(STORAGE_KEY);
-      setToken("");
-      setTokenInput("");
-      return;
-    }
-
-    localStorage.setItem(STORAGE_KEY, nextToken);
-    setToken(nextToken);
-  }
-
-  function handleSignOut() {
-    localStorage.removeItem(STORAGE_KEY);
-    setToken("");
-    setTokenInput("");
-  }
-
-  if (token) {
+  if (checking) return <main className="login"><p className="muted" role="status">Checking your session…</p></main>;
+  if (!session) {
     return (
-      <Dashboard
-        key={token}
-        accessToken={token}
-        onSignOut={handleSignOut}
-      />
+      <>
+        {problem && <div className="notice error" role="alert" style={{ margin: 16 }}><Icon name="info" /><div>{problem}</div></div>}
+        <Login onSignedIn={(value) => { setProblem(null); setSession(value); }} />
+      </>
     );
   }
-
-  return (
-    <main className="authentication-page">
-      <section className="login-panel">
-        <p className="eyebrow">AEGISGATE SOC</p>
-        <h1>Security operations console</h1>
-        <p className="login-panel__description">
-          Enter a JWT for a user with the{" "}
-          <code>soc_analyst</code> or{" "}
-          <code>security_admin</code> role.
-        </p>
-
-        <form className="token-form" onSubmit={handleTokenSubmit}>
-          <label htmlFor="access-token">Access token</label>
-
-          <textarea
-            id="access-token"
-            value={tokenInput}
-            onChange={(event) => setTokenInput(event.target.value)}
-            placeholder="eyJhbGciOi..."
-            rows={7}
-            spellCheck={false}
-          />
-
-          <button type="submit">Open dashboard</button>
-        </form>
-      </section>
-    </main>
-  );
+  return <Workspace session={session} onSignOut={signOut} />;
 }
-
-export default App;

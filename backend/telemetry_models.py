@@ -42,6 +42,11 @@ class NetworkTelemetryEvent(BaseModel):
     indicator: str | None = None
     is_malicious: bool = False
 
+    # Observed values only; None when the sensor did not report them.
+    bytes_out: int | None = Field(default=None, ge=0)
+    bytes_in: int | None = Field(default=None, ge=0)
+    signature_id: int | None = Field(default=None, ge=0)
+
     lab_metadata: LabMetadata | None = Field(
         default=None,
         description=(

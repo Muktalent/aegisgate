@@ -215,3 +215,8 @@ class IncidentCaseRecord(Base):
         String(128),
         nullable=False,
     )
+
+
+# Registers the session hook that seals every new audit entry (hash chain).
+# Imported last because the hook needs AuditLogRecord, defined above.
+from app import audit_trail  # noqa: E402,F401

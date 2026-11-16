@@ -61,6 +61,14 @@ def is_malicious_text(*values: str | None) -> bool:
     return any(keyword in text for keyword in MALICIOUS_KEYWORDS)
 
 
+def observed_count(value: Any) -> int | None:
+    """A non-negative integer reported by the sensor, otherwise None."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+
+    return value
+
+
 def normalize_suricata_event(raw_event: dict[str, Any]) -> NetworkTelemetryEvent:
     event_type = raw_event.get("event_type", "unknown")
     alert = raw_event.get("alert", {})
@@ -82,6 +90,9 @@ def normalize_suricata_event(raw_event: dict[str, Any]) -> NetworkTelemetryEvent
         category=category,
         indicator=raw_event.get("dns", {}).get("rrname"),
         is_malicious=is_malicious_text(signature, category),
+        bytes_out=observed_count((raw_event.get("flow") or {}).get("bytes_toserver")),
+        bytes_in=observed_count((raw_event.get("flow") or {}).get("bytes_toclient")),
+        signature_id=observed_count(alert.get("signature_id")),
         lab_metadata=raw_event.get("aegisgate_lab"),
         raw_event=raw_event,
     )
@@ -127,6 +138,8 @@ def normalize_zeek_event(
         category=category,
         indicator=query,
         is_malicious=is_malicious_text(signature, category, query),
+        bytes_out=observed_count(raw_event.get("orig_bytes")),
+        bytes_in=observed_count(raw_event.get("resp_bytes")),
         lab_metadata=raw_event.get("aegisgate_lab"),
         raw_event=raw_event,
     )
@@ -137,7 +150,9 @@ def normalize_network_telemetry(raw_event: dict[str, Any]) -> NetworkTelemetryEv
         return normalize_suricata_event(raw_event)
 
     if "id.orig_h" in raw_event or "note" in raw_event:
-        log_type = raw_event.get("_zeek_log_type", "connection")
+        # Zeek's JSON writer names the log in "_path"; "conn" is the connection log.
+        log_type = raw_event.get("_zeek_log_type") or raw_event.get("_path") or "connection"
+        log_type = {"conn": "connection"}.get(log_type, log_type)
         return normalize_zeek_event(raw_event, log_type)
 
     raise ValueError("Unsupported telemetry format.")

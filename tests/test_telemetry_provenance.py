@@ -9,14 +9,25 @@ sys.path.append(
     str(Path(__file__).resolve().parents[1] / "backend")
 )
 
-from behavior_scenarios import build_behavior_scenario
+from app.ingestion import normalise_event as process_network_event
 from telemetry_adapters import normalize_network_telemetry
-from telemetry_pipeline import process_network_event
 
 
 def scenario_event():
-    fixture = build_behavior_scenario("both_thresholds_reached")
-    return fixture["raw_events"][0]
+    return {
+        "event_type": "flow",
+        "timestamp": "2026-10-13T12:01:00+00:00",
+        "src_ip": "10.10.10.99",
+        "dest_ip": "198.51.100.1",
+        "dest_port": 22,
+        "proto": "TCP",
+        "aegisgate_lab": {
+            "synthetic": True,
+            "scenario": "both_thresholds_reached",
+            "sequence": 1,
+            "run_id": "fixture-run",
+        },
+    }
 
 
 @pytest.mark.parametrize("source_ip", ["10.10.10.99", "10.10.10.50"])
@@ -35,7 +46,8 @@ def test_pipeline_preserves_lab_metadata_without_raw_event(source_ip):
         assert result["access_decision"]["action"] == "manual_review"
     else:
         assert result["status"] == "processed"
-        assert "risk_assessment" in result
+        assert result["risk_assessment"] is None
+        assert result["access_decision"]["action"] == "pending_analysis"
 
     unmarked_event = dict(raw_event)
     unmarked_event.pop("aegisgate_lab")

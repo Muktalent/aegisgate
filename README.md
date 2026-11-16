@@ -67,10 +67,11 @@ Copy-Item .env.example .env
 
 Edit `.env` only for local development. Do not commit it.
 
-Start the API:
+Start the API from the `backend` folder (the code imports `app.*`):
 
 ```powershell
-uvicorn backend.app.main:app --reload
+Set-Location .\backend
+uvicorn app.main:app --reload
 ```
 
 The API will normally be available at:
@@ -95,7 +96,11 @@ Vite will display the local dashboard URL, normally:
 http://localhost:5173
 ```
 
-The dashboard requires a JWT issued by an authorized local laboratory user with the `soc_analyst` or `security_admin` role.
+Sign in with a local account (create one with `python scripts/create_user.py`). Roles: `security_admin`, `soc_analyst`, `viewer` and `ingestor`.
+
+Screens: Overview, Live Events (with telemetry file import), Findings, Detections, Investigations, Responses (simulated, with approval and rollback), Demo Lab (scenarios and the comparative evaluation), Audit (hash-chain verification and CSV export), Analytics and Settings.
+
+Ingestion only normalises telemetry and correlates it with the asset inventory; risk and policy are decided by the analysis core over correlated findings. The first prototype (per-event risk engine, first API and dashboard) was removed; it is preserved in git under the tag `prototype-v1` (`git checkout prototype-v1`).
 
 ## Testing and validation
 
@@ -104,6 +109,8 @@ Run the Python test suite from the repository root:
 ```powershell
 python -m pytest
 ```
+
+`pytest.ini` limits collection to `tests/`. Run the comparative detection evaluation with `python scripts/evaluate_detection.py` (writes JSON and CSV to `reports/`).
 
 Build the frontend for production:
 
